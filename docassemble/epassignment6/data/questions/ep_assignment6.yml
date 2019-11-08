@@ -1,0 +1,310 @@
+---
+modules:
+  - docassemble.base.core
+  - docassemble.base.util
+  - .LAAIndividual
+---
+objects:
+  - client: LAAIndividual.using(complete_attribute="complete")
+  - family: DAList.using(object_type=LAAIndividual, complete_attribute="complete")
+  - reviewer: LAAIndividual
+---
+code:  |
+  reviewer_email = 'erinp@insigniasoftware.com'
+---
+default role: client
+code:  |
+  multi_user = True
+  role = 'client'
+  if submit_form:
+    if user_logged_in():
+      if user_info().email == reviewer_email:
+        role = 'reviewer'
+---
+code:  |
+  client.name.first
+  client.email
+  client.annual_income.value
+  client.monthly_income.value
+  client.assets.value
+  client.complete = True
+---  
+code:  |
+  family[i].name.first
+  family[i].annual_income.value
+  family[i].monthly_income.value
+  family[i].assets.value
+  family[i].complete = True
+---
+mandatory: True
+code:  |
+  # Interview flow block.
+  client.complete
+  family.gather()
+  role_event
+  final_download  
+---
+question:  |
+  What is your name?
+fields: 
+  - First Name: client.name.first
+  - Last Name: client.name.last
+---
+question:  |
+  What is the best e-mail address to reach you at?
+fields:
+  - E-mail: client.email
+    datatype: email
+---
+question:  |
+  What is your annual income?
+fields: 
+  - Income: client.annual_income.value
+    datatype: currency
+    min: 0
+---
+question:  |
+  What is your monthly income?
+fields: 
+  - Monthly Income: client.monthly_income.value
+    datatype: currency
+    min: 0
+---
+question:  |
+  What is the total value of your assets?
+fields: 
+  - Value of Assets: client.assets.value
+    datatype: currency
+    min: 0
+---
+question: Do you have any family members, ${ client.name.first }?
+yesno: family.there_are_any
+---  
+question: What is the name of your ${ ordinal(i) } family member?
+fields:
+  - First Name: family[i].name.first
+  - Last Name: family[i].name.last
+---
+question: Can you please provide some more information about ${ family[i].name }?
+fields:
+  - Annual Income: family[i].annual_income.value
+    datatype: currency
+    min: 0
+  - Monthly Income: family[i].monthly_income.value
+    datatype: currency
+    min: 0
+  - Value of Assets: family[i].assets.value
+    datatype: currency
+    min: 0
+---
+question: Do you have any other family members?
+yesno: family.there_is_another
+---
+question:  |
+  Do you already have a lawyer?
+yesno: active_lawyer
+---
+if:  |
+  active_lawyer == False
+question:  |
+  Can you afford a lawyer?
+noyes: cant_afford_lawyer
+---
+question:  |  
+  Is your legal matter located in Alberta?
+yesno: matter_in_alberta
+---
+question:  |  
+  Is this legal matter a family law matter or a criminal law matter?
+fields: 
+  - Type of Matter: type_of_matter
+    choices:
+      - family
+      - criminal
+      - other
+  - Other matter: type_of_matter
+    show if:
+      variable: type_of_matter
+      is: other
+---
+question:  |  
+  Do you live in Alberta?
+noyes: not_in_alberta
+---
+question:  |  
+  Is this an appeal of a matter for which you have received LAA assistance?
+yesno: is_appeal
+---
+code:  |
+  if active_lawyer:
+    cant_afford_lawyer = False
+  if type_of_matter == "family" or "criminal":
+    eligible_matter = True
+reconsider: True
+---
+code:  |
+  family_assets = client.assets.value
+  family_monthly_income = client.monthly_income.value
+  family_annual_income = client.annual_income.value
+  for person in family:
+    family_assets += person.assets.value
+    family_monthly_income += person.monthly_income.value
+    family_annual_income += person.annual_income.value
+reconsider: True
+---
+code:  |
+  if (family_annual_income < 10000) and (family_monthly_income < 500) and (family_assets < 1000):
+    financially_eligible = True
+  else:
+    financially_eligible = False
+reconsider: True
+---
+code:  |   
+  if (family_annual_income > 20000) or (family_monthly_income > 1500) or (family_assets > 10000):
+    financially_ineligible = True
+  else:
+    financially_ineligible = False
+reconsider: True
+---
+code:  |
+  if not financially_eligible and not financially_ineligible:
+    financially_eligible_marginally = True
+  else:
+    financially_eligible_marginally = False
+---
+code:  |    
+  if financially_eligible and not active_lawyer and eligible_matter and not is_appeal and not not_in_alberta:
+    eligible = True
+  else:
+    eligible = False
+---
+code:  |    
+  if financially_eligible_marginally and not active_lawyer and eligible_matter and not is_appeal and not not_in_alberta:
+    marginally_eligible = True
+  else:
+    marginally_eligible = False
+---
+code:  |
+  if financially_ineligible or active_lawyer or not eligible_matter or is_appeal or not_in_alberta:
+    not_eligible = True
+  else:
+    not_eligible = False
+---
+code:  |
+  email_sent_ok = send_email(to=[reviewer_email], template=please_review)
+---
+question:  |
+  Thank you, ${ client }.
+subquestion:  |
+  % if client.email:
+    % if marginally_eligible:
+  Based on the above information, you may qualify for legal aid services, but require a more detailed assessment.
+    % endif
+    % if eligible:
+  Based on the submitted information, you likely qualify for legal aid services.
+    % endif
+    % if not_eligible:
+  Based on the submitted information, you likely do not qualify for legal aid services.
+    % endif
+  % endif
+  
+  However, your information will need to be reviewed for correctness. We will email you when it has been approved. Is this ok?
+yesno:  submit_form
+---
+event: role_event
+question:  |
+  Document review is required
+subquestion:  |
+  % if submit_form:
+    % if email_sent_ok:
+  All interview information has been submitted successfully, but has to be reviewed.
+    % else:
+  There was a problem submitting your information.
+    % endif
+  % else:
+  Okay, your information will not be reviewed.
+  % endif
+  
+  % if not user_logged_in():
+  Please click "Sign in" to review the information.
+  % endif
+  
+  Press **Check** to check on the status.
+buttons:
+  - Check: refresh
+---
+template: please_review
+subject:  |
+  LAW599 Assignment 6
+content:  |
+  Hi Jason!
+  
+  Can you please review and approve this application?
+  
+  You can access and approve it at the following URL:
+  [${ interview_url() }]($ interview_url() })
+  
+  Thanks!
+---
+role: reviewer
+question:  |
+  % if submit_form:
+    % if email_sent_ok:  
+  Please download the attached document for review.
+    % endif
+  % endif
+subquestion:  |
+  Do you approve of this letter?
+yesno: has_been_approved
+attachment: 
+  - name: Legal Aid Application
+    filename: Legal_Aid_Application
+    docx template file: legal_aid_template3.docx
+    valid formats:
+      - pdf
+      - docx
+---
+code:  |
+   second_email_sent_ok = send_email(to=[user], template=application_result)
+---
+template: application_result
+subject:  |
+  Your Legal Aid Application
+content:  |
+  Hello  ${ client },
+  
+  Your Legal Aid Application has been reviewed and is ready to be downloaded. Please click on the following link to access the form:
+  
+    [${ interview_url() }]($ interview_url() })
+  
+  Thank you,
+  
+  Edmonton Legal Aid Services
+---
+role: reviewer
+question:  |
+  Thank you, Jason!
+subquestion:  |
+  % if has_been_approved:
+    % if second_email_sent_ok:
+  The client has been notified of thier application approval.
+    % else:
+  There was a problem submitting your information.
+    % endif
+  % else:
+  The client has been notified that the memo has not been approved.
+  % endif
+---
+event: final_download
+role: client
+question:  |
+  Please download the attached document for review.
+attachment: 
+  - name: Legal Aid Application
+    filename: Legal_Aid_Application
+    docx template file: legal_aid_template3.docx
+    valid formats:
+      - pdf
+      - docx
+Exit: exit
+---
