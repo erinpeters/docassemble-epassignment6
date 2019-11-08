@@ -10,7 +10,7 @@ objects:
   - reviewer: LAAIndividual
 ---
 code:  |
-  reviewer_email = 'erinp@insigniasoftware.com'
+  reviewer_email = 'jmorris@ualberta.ca'
 ---
 default role: client
 code:  |
